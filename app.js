@@ -42,6 +42,7 @@ const state = {
     vsTeamB: "",
     vsMatchDate: "",
     vsMatchTime: "",
+    matches: [],
   },
   ready: false,
   error: null,
@@ -66,6 +67,7 @@ const state = {
   adminSaved: "",
   adminTeamRooms: {},
   adminTeamRoomSaved: "",
+  adminMatchDraft: { aId: "", bId: "", roomId: "", roomPass: "" },
   // register
   logoDataUrl: "",
   regBusy: false,
@@ -148,6 +150,7 @@ function subscribeSettings() {
           vsTeamB: data.vsTeamB || "",
           vsMatchDate: data.vsMatchDate || "",
           vsMatchTime: data.vsMatchTime || "",
+          matches: Array.isArray(data.matches) ? data.matches : [],
         };
         state.settings = nextSettings;
         state.adminRooms = JSON.parse(JSON.stringify(nextSettings.rooms));
@@ -229,6 +232,17 @@ async function saveRoomSettings(mode, id, pass) {
 
 async function saveTeamRoom(teamId, roomId, roomPass) {
   await db.collection(REGISTRATIONS_COL).doc(teamId).update({ roomId, roomPass });
+}
+
+async function addMatch(aId, bId, roomId, roomPass) {
+  const id = "M-" + Date.now().toString(36).toUpperCase();
+  const next = [...state.settings.matches, { id, aId, bId, roomId, roomPass }];
+  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ matches: next }, { merge: true });
+}
+
+async function removeMatch(matchId) {
+  const next = state.settings.matches.filter((m) => m.id !== matchId);
+  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ matches: next }, { merge: true });
 }
 
 async function updateRevealPublic(val) {
@@ -465,6 +479,26 @@ function renderHome() {
                 : ""
             }
           </div>
+          ${
+            state.settings.matches.length > 0
+              ? `<div style="margin-top:1rem">
+                  <h5 style="font-size:0.9375rem;margin-bottom:0.5rem">Match pairings</h5>
+                  <div style="display:flex;flex-direction:column;gap:0.5rem">
+                    ${state.settings.matches
+                      .map((m) => {
+                        const a = regs.find((t) => t.id === m.aId);
+                        const b = regs.find((t) => t.id === m.bId);
+                        return `<div class="room-item" style="padding:0.75rem;border:1px solid var(--line);border-radius:0.5rem;background:var(--bg)">
+                          <div class="val" style="font-weight:600">${escapeHtml((a && a.teamName) || "?")} <span class="text-gold">vs</span> ${escapeHtml((b && b.teamName) || "?")}</div>
+                          <div class="lbl" style="margin-top:0.375rem">Room ID</div><div class="val">${escapeHtml(m.roomId || "—")}</div>
+                          <div class="lbl">Password</div><div class="val">${escapeHtml(m.roomPass || "—")}</div>
+                        </div>`;
+                      })
+                      .join("")}
+                  </div>
+                </div>`
+              : ""
+          }
         </div>`
       : "";
 
@@ -946,6 +980,53 @@ function renderAdmin() {
                   .join("")
           }
         </div>
+
+        <h4 style="margin-top:1.5rem;font-size:1rem">Match pairings (Team vs Team)</h4>
+        <p class="text-muted" style="font-size:0.875rem;margin-bottom:0.75rem">Pick two teams and set their shared Room ID & password — same idea as the VS poster, but here it's tied to the room.</p>
+        ${
+          regs.length < 2
+            ? `<p class="text-muted" style="font-size:0.875rem">Need at least 2 registered teams to create a pairing.</p>`
+            : `
+        <div class="vs-picks" style="margin-top:0">
+          <div class="field"><label for="matchPickA">Team A</label>
+            <select id="matchPickA" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem">
+              <option value="">— select team —</option>
+              ${regs.map((t) => `<option value="${escapeHtml(t.id)}" ${state.adminMatchDraft.aId === t.id ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><label for="matchPickB">Team B</label>
+            <select id="matchPickB" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem">
+              <option value="">— select team —</option>
+              ${regs.map((t) => `<option value="${escapeHtml(t.id)}" ${state.adminMatchDraft.bId === t.id ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="vs-picks" style="margin-top:0.75rem">
+          <div class="field"><label for="matchRoomId">Room ID</label><input id="matchRoomId" value="${escapeHtml(state.adminMatchDraft.roomId)}" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem" /></div>
+          <div class="field"><label for="matchRoomPass">Password</label><input id="matchRoomPass" value="${escapeHtml(state.adminMatchDraft.roomPass)}" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem" /></div>
+        </div>
+        <button class="btn-primary" id="addMatch" style="margin-top:0.75rem;min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Add match pairing</button>
+        `
+        }
+        ${
+          state.settings.matches.length > 0
+            ? `<div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:0.5rem">
+            ${state.settings.matches
+              .map((m) => {
+                const a = regs.find((t) => t.id === m.aId);
+                const b = regs.find((t) => t.id === m.bId);
+                return `<div class="room-item" style="border:1px solid var(--line);border-radius:0.5rem;padding:0.75rem;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.5rem">
+                  <div>
+                    <div class="val" style="font-weight:600">${escapeHtml((a && a.teamName) || "?")} <span class="text-gold">vs</span> ${escapeHtml((b && b.teamName) || "?")}</div>
+                    <div class="text-muted" style="font-size:0.8rem;margin-top:0.25rem">Room ID: ${escapeHtml(m.roomId || "—")} · Password: ${escapeHtml(m.roomPass || "—")}</div>
+                  </div>
+                  <button class="btn-ghost remove-match" data-match-id="${escapeHtml(m.id)}" style="min-height:auto;padding:0.375rem 0.75rem;font-size:0.75rem;color:var(--danger,#e5484d);border-color:var(--danger,#e5484d)">Remove</button>
+                </div>`;
+              })
+              .join("")}
+          </div>`
+            : ""
+        }
       </section>
 
       <!-- Team Reveal inside Admin -->
@@ -1270,13 +1351,13 @@ function renderVs() {
     body = ""; // public: nothing is shown until admin makes the poster LIVE
   } else if (!ready) {
     body = isAdmin
-      ? `<div class="empty-state mt-6">Admin panel ke VS Poster section mein dono teams choose karke Save karo. <a href="#/admin" class="text-gold">Admin →</a></div>`
+      ? `<div class="empty-state mt-6">Choose both teams and save in the Admin panel's VS Poster section. <a href="#/admin" class="text-gold">Admin →</a></div>`
       : "";
   } else {
     body = `
       ${
         !live
-          ? `<p class="text-muted" style="margin-top:1rem;font-size:0.8rem">Sirf aapko (admin) dikh raha hai — public ke liye hidden. Admin panel se LIVE karo. <a href="#/admin" class="text-gold">Admin →</a></p>`
+          ? `<p class="text-muted" style="margin-top:1rem;font-size:0.8rem">Only visible to you (admin) — hidden from the public. Make it LIVE from the Admin panel. <a href="#/admin" class="text-gold">Admin →</a></p>`
           : ""
       }
       <div class="vs-preview-row">
@@ -1319,11 +1400,11 @@ function renderAdminVs(regs) {
       <section class="admin-section">
         <h3>VS Poster (admin control)</h3>
         <p class="text-muted" style="font-size:0.875rem;margin-bottom:1rem">
-          VS section mein poster public ko tabhi dikhega jab tum ise <strong style="color:var(--fg)">LIVE</strong> karoge.
+          The VS poster is only visible to the public on the VS section once you make it <strong style="color:var(--fg)">LIVE</strong>.
         </p>
         ${
           regs.length < 2
-            ? `<p class="text-muted" style="font-size:0.875rem">VS ke liye kam se kam 2 teams register honi chahiye.</p>`
+            ? `<p class="text-muted" style="font-size:0.875rem">Need at least 2 registered teams for VS.</p>`
             : `
         <div class="vs-picks" style="margin-top:0">
           <div class="field"><label for="vsPickA">Team A</label><select id="vsPickA" style="${selStyle}">${opts(d.aId)}</select></div>
@@ -1352,7 +1433,7 @@ function renderAdminVs(regs) {
         ${
           d.a && d.b
             ? `<div style="max-width:20rem">${vsPosterBlock(d.a, d.b, d.when)}</div>`
-            : `<p class="text-muted" style="font-size:0.8rem">Dono teams select karo — poster preview yahan banega.</p>`
+            : `<p class="text-muted" style="font-size:0.8rem">Select both teams — the poster preview will appear here.</p>`
         }`
         }
       </section>
@@ -1361,11 +1442,11 @@ function renderAdminVs(regs) {
 
 function vsDraftValid(d) {
   if (!d.a || !d.b) {
-    alert("Pehle dono teams select karo.");
+    alert("Select both teams first.");
     return false;
   }
   if (d.aId === d.bId) {
-    alert("Team A aur Team B alag hone chahiye.");
+    alert("Team A and Team B must be different.");
     return false;
   }
   return true;
@@ -1395,7 +1476,7 @@ function render() {
 
   // Reveal button in public nav — visible only while Reveal is LIVE
   const navReveal = document.getElementById("navReveal");
-  if (navReveal) navReveal.style.display = state.settings.revealPublic ? "" : "none";
+  if (navReveal) navReveal.style.display = "";
 
   let html = "";
   if (state.route === "/admin") {
@@ -1726,6 +1807,35 @@ function bindEvents() {
       state.adminTeamRoomSaved = teamId;
       render();
       setTimeout(() => { state.adminTeamRoomSaved = ""; render(); }, 1600);
+    });
+  });
+
+  // Match pairings (team vs team, with room id/password)
+  const mpA = document.getElementById("matchPickA");
+  const mpB = document.getElementById("matchPickB");
+  const mrId = document.getElementById("matchRoomId");
+  const mrPass = document.getElementById("matchRoomPass");
+  if (mpA) mpA.addEventListener("change", (e) => { state.adminMatchDraft.aId = e.target.value; });
+  if (mpB) mpB.addEventListener("change", (e) => { state.adminMatchDraft.bId = e.target.value; });
+  if (mrId) mrId.addEventListener("input", (e) => { state.adminMatchDraft.roomId = e.target.value; });
+  if (mrPass) mrPass.addEventListener("input", (e) => { state.adminMatchDraft.roomPass = e.target.value; });
+  const addMatchBtn = document.getElementById("addMatch");
+  if (addMatchBtn) {
+    addMatchBtn.addEventListener("click", async () => {
+      const d = state.adminMatchDraft;
+      if (!d.aId || !d.bId || d.aId === d.bId) {
+        alert("Choose two different teams.");
+        return;
+      }
+      await addMatch(d.aId, d.bId, (d.roomId || "").trim(), (d.roomPass || "").trim());
+      state.adminMatchDraft = { aId: "", bId: "", roomId: "", roomPass: "" };
+      render();
+    });
+  }
+  document.querySelectorAll(".remove-match").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await removeMatch(btn.getAttribute("data-match-id"));
+      render();
     });
   });
 
