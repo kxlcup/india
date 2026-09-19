@@ -251,6 +251,20 @@ async function updateVsPosterPublic(val, aId, bId, when) {
   await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set(payload, { merge: true });
 }
 
+async function deleteVsPoster() {
+  await db
+    .collection(SETTINGS_COL)
+    .doc(SETTINGS_ID)
+    .set(
+      { vsPosterPublic: false, vsTeamA: "", vsTeamB: "", vsMatchDate: "", vsMatchTime: "" },
+      { merge: true }
+    );
+  state.vsPickA = "";
+  state.vsPickB = "";
+  state.vsPickDate = "";
+  state.vsPickTime = "";
+}
+
 async function updateRevealLive(playing, idx) {
   const payload = { revealPlaying: !!playing };
   if (typeof idx === "number") payload.revealIdx = idx;
@@ -1341,6 +1355,11 @@ function renderAdminVs(regs) {
             ${live ? "● LIVE — hide from public" : "Make VS Poster LIVE (public)"}
           </button>
           <a href="#/vs" class="btn-ghost" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Preview VS page →</a>
+          ${
+            d.a && d.b
+              ? `<button class="btn-ghost" id="vsDelete" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem;color:var(--danger,#e5484d);border-color:var(--danger,#e5484d)">🗑 Delete poster</button>`
+              : ""
+          }
         </div>
         <p style="font-size:0.8rem;margin-bottom:0.75rem">
           Status:
@@ -1794,6 +1813,14 @@ function bindEvents() {
       state.vsPickB = null;
       state.vsPickDate = null;
       state.vsPickTime = null;
+    });
+  }
+  const vsDelete = document.getElementById("vsDelete");
+  if (vsDelete) {
+    vsDelete.addEventListener("click", async () => {
+      if (!confirm("Delete the VS poster? This clears the teams, date, and time.")) return;
+      await deleteVsPoster();
+      render();
     });
   }
 }
