@@ -20,7 +20,7 @@ const ADMIN_ID = "espx_admin";
 const ADMIN_PASSWORD = "khatri1k";
 const ADMIN_SESSION_KEY = "ff_tournament_admin_session_vihaan_espx";
 
-const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "Clash Squad" };
+const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "CS Match 4v4" };
 const EMPTY_ROOMS = {
   SOLO: { id: "", pass: "" },
   DUO: { id: "", pass: "" },
@@ -40,6 +40,8 @@ const state = {
     vsPosterPublic: false,
     vsTeamA: "",
     vsTeamB: "",
+    vsMatchDate: "",
+    vsMatchTime: "",
   },
   ready: false,
   error: null,
@@ -47,6 +49,8 @@ const state = {
   // vs poster
   vsPickA: null,
   vsPickB: null,
+  vsPickDate: null,
+  vsPickTime: null,
   vsPoster: {},
   vsPosterBusy: {},
   // reveal
@@ -140,6 +144,8 @@ function subscribeSettings() {
           vsPosterPublic: !!data.vsPosterPublic,
           vsTeamA: data.vsTeamA || "",
           vsTeamB: data.vsTeamB || "",
+          vsMatchDate: data.vsMatchDate || "",
+          vsMatchTime: data.vsMatchTime || "",
         };
         state.settings = nextSettings;
         state.adminRooms = JSON.parse(JSON.stringify(nextSettings.rooms));
@@ -224,15 +230,23 @@ async function updateRevealPublic(val) {
   await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set(payload, { merge: true });
 }
 
-async function saveVsPair(aId, bId) {
-  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ vsTeamA: aId, vsTeamB: bId }, { merge: true });
+async function saveVsPair(aId, bId, when) {
+  await db
+    .collection(SETTINGS_COL)
+    .doc(SETTINGS_ID)
+    .set(
+      { vsTeamA: aId, vsTeamB: bId, vsMatchDate: (when && when.date) || "", vsMatchTime: (when && when.time) || "" },
+      { merge: true }
+    );
 }
 
-async function updateVsPosterPublic(val, aId, bId) {
+async function updateVsPosterPublic(val, aId, bId, when) {
   const payload = { vsPosterPublic: !!val };
   if (aId && bId) {
     payload.vsTeamA = aId;
     payload.vsTeamB = bId;
+    payload.vsMatchDate = (when && when.date) || "";
+    payload.vsMatchTime = (when && when.time) || "";
   }
   await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set(payload, { merge: true });
 }
@@ -484,11 +498,11 @@ function renderHome() {
           <div class="details-grid">
             ${[
               ["Game", "Free Fire"],
-              ["Format", "Clash Squad (CS) · 4v4"],
+              ["Format", "CS Match 4v4"],
               ["Prize pool", "₹1,000"],
               ["Entry fee", "Free"],
               ["Total slots", TOTAL_SLOTS + " teams"],
-              ["Match date", "Announced on YouTube live"],
+              ["Match date & time", vsWhenText({ date: state.settings.vsMatchDate, time: state.settings.vsMatchTime }) || "Announced on YouTube live"],
             ]
               .map(([l, v]) => `<div class="details-cell"><div class="lbl">${l}</div><div class="val">${v}</div></div>`)
               .join("")}
@@ -524,7 +538,6 @@ function renderHome() {
           <div class="flex flex-wrap items-center justify-between mb-4">
             <div>
               <h2 style="font-size:1.625rem">Squad gallery</h2>
-              <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">Public cards only — WhatsApp and UID stay in admin.</p>
             </div>
             
           </div>
@@ -564,7 +577,7 @@ function renderRegisterForm() {
           </div>
           <div class="field">
             <label>Mode</label>
-            <div class="mode-locked">⚔ Clash Squad (CS) — only mode open</div>
+            <div class="mode-locked">⚔ CS Match 4v4</div>
             <input type="hidden" id="modeSelect" value="CS" />
           </div>
         </div>
@@ -592,7 +605,7 @@ function renderRegisterForm() {
         </div>
       </fieldset>
       <fieldset>
-        <legend>Teammates (CS — up to 3 more)</legend>
+        <legend>Teammates (CS Match 4v4 — up to 3 more)</legend>
         <div class="field-grid cols-2">
           <div class="field"><label for="p2Name">Player 2 IGN</label><input id="p2Name" required /><div class="err-msg" id="err-p2Name"></div></div>
           <div class="field"><label for="p2Uid">Player 2 UID</label><input id="p2Uid" required /><div class="err-msg" id="err-p2Uid"></div></div>
@@ -962,19 +975,52 @@ function findTeam(id) {
 }
 
 function vsPairFromSettings() {
-  return { a: findTeam(state.settings.vsTeamA), b: findTeam(state.settings.vsTeamB) };
+  return {
+    a: findTeam(state.settings.vsTeamA),
+    b: findTeam(state.settings.vsTeamB),
+    when: { date: state.settings.vsMatchDate || "", time: state.settings.vsMatchTime || "" },
+  };
+}
+
+// "Sat, 20 Sep 2026 · 7:30 PM" from { date: "YYYY-MM-DD", time: "HH:MM" }
+function vsWhenText(when) {
+  if (!when) return "";
+  const parts = [];
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(when.date || "");
+  if (dm) {
+    parts.push(
+      new Date(+dm[1], +dm[2] - 1, +dm[3]).toLocaleDateString("en-IN", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    );
+  }
+  const tm = /^(\d{2}):(\d{2})$/.exec(when.time || "");
+  if (tm) {
+    let h = +tm[1];
+    const ap = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    parts.push(`${h}:${tm[2]} ${ap}`);
+  }
+  return parts.join(" · ");
 }
 
 // Admin draft (selects) falls back to what is saved in Firebase
 function vsPairDraft() {
   const aId = state.vsPickA != null ? state.vsPickA : state.settings.vsTeamA;
   const bId = state.vsPickB != null ? state.vsPickB : state.settings.vsTeamB;
-  return { aId, bId, a: findTeam(aId), b: findTeam(bId) };
+  const when = {
+    date: state.vsPickDate != null ? state.vsPickDate : state.settings.vsMatchDate || "",
+    time: state.vsPickTime != null ? state.vsPickTime : state.settings.vsMatchTime || "",
+  };
+  return { aId, bId, a: findTeam(aId), b: findTeam(bId), when };
 }
 
-function vsKey(a, b) {
+function vsKey(a, b, when) {
   const part = (t) => [t.id, t.teamName, t.tagline || "", (t.logoDataUrl || "").length].join("~");
-  return part(a) + "|" + part(b);
+  return part(a) + "|" + part(b) + "|" + ((when && when.date) || "") + "T" + ((when && when.time) || "");
 }
 
 function vsLoadImage(src) {
@@ -1048,7 +1094,7 @@ async function vsDrawTeam(ctx, team, cx, top, size, colors) {
   }
 }
 
-async function buildVsPoster(a, b) {
+async function buildVsPoster(a, b, when) {
   const W = 1080;
   const H = 1350;
   const cv = document.createElement("canvas");
@@ -1097,7 +1143,7 @@ async function buildVsPoster(a, b) {
   ctx.fillText("KHATRI × ESP7", W / 2, 120);
   ctx.fillStyle = colors.fg;
   ctx.font = "600 34px Inter, sans-serif";
-  ctx.fillText("CLASH SQUAD · 4V4 · FREE FIRE", W / 2, 175);
+  ctx.fillText("CS MATCH 4V4 · FREE FIRE", W / 2, 175);
 
   // teams + VS
   await vsDrawTeam(ctx, a, W / 2, 225, 260, colors);
@@ -1114,23 +1160,33 @@ async function buildVsPoster(a, b) {
   ctx.restore();
   await vsDrawTeam(ctx, b, W / 2, 820, 260, colors);
 
-  // footer
+  // footer — chosen match date & time (falls back to the old line if not set)
   ctx.textAlign = "center";
-  ctx.fillStyle = colors.muted;
-  ctx.font = "600 30px Inter, sans-serif";
-  ctx.fillText("MATCH TIME · ANNOUNCED ON YOUTUBE LIVE", W / 2, 1290);
+  const whenTxt = vsWhenText(when).toUpperCase();
+  if (whenTxt) {
+    ctx.fillStyle = colors.muted;
+    ctx.font = "600 26px Inter, sans-serif";
+    ctx.fillText("MATCH DATE & TIME", W / 2, 1240);
+    ctx.fillStyle = colors.gold;
+    vsFitFont(ctx, whenTxt, 900, 56, 34, 700, "Rajdhani, Inter, sans-serif");
+    ctx.fillText(whenTxt, W / 2, 1298);
+  } else {
+    ctx.fillStyle = colors.muted;
+    ctx.font = "600 30px Inter, sans-serif";
+    ctx.fillText("MATCH TIME · ANNOUNCED ON YOUTUBE LIVE", W / 2, 1290);
+  }
 
   return cv.toDataURL("image/jpeg", 0.92);
 }
 
 // Returns cached poster URL, or "" while it is being generated (img is filled in when ready)
-function vsPosterUrl(a, b) {
+function vsPosterUrl(a, b, when) {
   if (!a || !b) return "";
-  const key = vsKey(a, b);
+  const key = vsKey(a, b, when);
   if (state.vsPoster[key]) return state.vsPoster[key];
   if (!state.vsPosterBusy[key]) {
     state.vsPosterBusy[key] = true;
-    buildVsPoster(a, b)
+    buildVsPoster(a, b, when)
       .then((url) => {
         if (Object.keys(state.vsPoster).length > 6) state.vsPoster = {};
         state.vsPoster[key] = url;
@@ -1149,14 +1205,28 @@ function vsPosterUrl(a, b) {
   return "";
 }
 
-function vsPosterBlock(a, b) {
-  const key = vsKey(a, b);
-  const url = vsPosterUrl(a, b);
+function vsPosterBlock(a, b, when) {
+  const key = vsKey(a, b, when);
+  const url = vsPosterUrl(a, b, when);
   return `
     <img class="vs-poster-img" id="vsPosterImg" data-key="${escapeHtml(key)}" ${url ? `src="${url}"` : ""} alt="VS poster: ${escapeHtml(a.teamName)} vs ${escapeHtml(b.teamName)}" style="display:block;margin-left:auto;margin-right:auto" />
     <p style="text-align:center;margin-top:0.75rem">
       <a class="btn-ghost" id="vsPosterDl" ${url ? `href="${url}"` : ""} download="vs-poster.jpg" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Download poster</a>
     </p>`;
+}
+
+// Date/time inputs change the poster without re-rendering the page (keeps input focus)
+function vsRefreshPreview() {
+  const d = vsPairDraft();
+  const el = document.getElementById("vsPosterImg");
+  if (!el || !d.a || !d.b) return;
+  el.setAttribute("data-key", vsKey(d.a, d.b, d.when));
+  const url = vsPosterUrl(d.a, d.b, d.when);
+  if (url) {
+    el.src = url;
+    const dl = document.getElementById("vsPosterDl");
+    if (dl) dl.href = url;
+  }
 }
 
 function vsSide(t) {
@@ -1173,15 +1243,16 @@ function vsSide(t) {
 function renderVs() {
   const live = !!state.settings.vsPosterPublic;
   const isAdmin = state.adminAuthed;
-  const { a, b } = vsPairFromSettings();
+  const { a, b, when } = vsPairFromSettings();
+  const whenText = vsWhenText(when);
   const ready = !!(a && b);
   let body = "";
   if (!live && !isAdmin) {
-    body = `<div class="empty-state mt-6">VS poster abhi public nahi hua. Host jab LIVE karega tab yahan dikhega.</div>`;
+    body = ""; // public: nothing is shown until admin makes the poster LIVE
   } else if (!ready) {
     body = isAdmin
       ? `<div class="empty-state mt-6">Admin panel ke VS Poster section mein dono teams choose karke Save karo. <a href="#/admin" class="text-gold">Admin →</a></div>`
-      : `<div class="empty-state mt-6">Match abhi set nahi hua. Thodi der mein dobara dekho.</div>`;
+      : "";
   } else {
     body = `
       ${
@@ -1194,12 +1265,17 @@ function renderVs() {
         <span class="vs-text">VS</span>
         ${vsSide(b)}
       </div>
-      ${vsPosterBlock(a, b)}`;
+      ${
+        whenText
+          ? `<p style="text-align:center;margin-top:1rem;font-family:var(--font-display);font-size:1.25rem;font-weight:700;color:var(--gold)">${escapeHtml(whenText)}</p>`
+          : ""
+      }
+      ${vsPosterBlock(a, b, when)}`;
   }
   return `
     <div class="page">
       <main class="vs-page">
-        <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">CLASH SQUAD · 4V4</p>
+        <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">CS MATCH 4V4</p>
         <h1 style="font-size:2.25rem;margin-top:0.5rem">⚔️ VS</h1>
         ${body}
       </main>
@@ -1234,6 +1310,10 @@ function renderAdminVs(regs) {
           <div class="field"><label for="vsPickA">Team A</label><select id="vsPickA" style="${selStyle}">${opts(d.aId)}</select></div>
           <div class="field"><label for="vsPickB">Team B</label><select id="vsPickB" style="${selStyle}">${opts(d.bId)}</select></div>
         </div>
+        <div class="vs-picks" style="margin-top:0">
+          <div class="field"><label for="vsDate">Match date</label><input type="date" id="vsDate" value="${escapeHtml(d.when.date)}" style="${selStyle};color-scheme:dark" /></div>
+          <div class="field"><label for="vsTime">Match time</label><input type="time" id="vsTime" value="${escapeHtml(d.when.time)}" style="${selStyle};color-scheme:dark" /></div>
+        </div>
         <div class="flex flex-wrap gap-2" style="margin:1rem 0">
           <button class="btn-ghost" id="vsSave" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Save match</button>
           <button class="btn-primary" id="vsToggle" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">
@@ -1247,7 +1327,7 @@ function renderAdminVs(regs) {
         </p>
         ${
           d.a && d.b
-            ? `<div style="max-width:20rem">${vsPosterBlock(d.a, d.b)}</div>`
+            ? `<div style="max-width:20rem">${vsPosterBlock(d.a, d.b, d.when)}</div>`
             : `<p class="text-muted" style="font-size:0.8rem">Dono teams select karo — poster preview yahan banega.</p>`
         }`
         }
@@ -1663,14 +1743,20 @@ function bindEvents() {
   const vsPickB = document.getElementById("vsPickB");
   if (vsPickA) vsPickA.addEventListener("change", (e) => { state.vsPickA = e.target.value; render(); });
   if (vsPickB) vsPickB.addEventListener("change", (e) => { state.vsPickB = e.target.value; render(); });
+  const vsDate = document.getElementById("vsDate");
+  const vsTime = document.getElementById("vsTime");
+  if (vsDate) vsDate.addEventListener("change", (e) => { state.vsPickDate = e.target.value; vsRefreshPreview(); });
+  if (vsTime) vsTime.addEventListener("change", (e) => { state.vsPickTime = e.target.value; vsRefreshPreview(); });
   const vsSave = document.getElementById("vsSave");
   if (vsSave) {
     vsSave.addEventListener("click", async () => {
       const d = vsPairDraft();
       if (!vsDraftValid(d)) return;
-      await saveVsPair(d.aId, d.bId);
+      await saveVsPair(d.aId, d.bId, d.when);
       state.vsPickA = null;
       state.vsPickB = null;
+      state.vsPickDate = null;
+      state.vsPickTime = null;
     });
   }
   const vsToggle = document.getElementById("vsToggle");
@@ -1682,9 +1768,11 @@ function bindEvents() {
       }
       const d = vsPairDraft();
       if (!vsDraftValid(d)) return;
-      await updateVsPosterPublic(true, d.aId, d.bId);
+      await updateVsPosterPublic(true, d.aId, d.bId, d.when);
       state.vsPickA = null;
       state.vsPickB = null;
+      state.vsPickDate = null;
+      state.vsPickTime = null;
     });
   }
 }
