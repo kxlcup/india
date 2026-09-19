@@ -460,7 +460,7 @@ function renderHome() {
           <div class="details-grid">
             ${[
               ["Game", "Free Fire"],
-              ["Format", "Clash Squad (CS)"],
+              ["Format", "Clash Squad (CS) · 4v4"],
               ["Prize pool", "₹1,000"],
               ["Entry fee", "Free"],
               ["Total slots", TOTAL_SLOTS + " teams"],
