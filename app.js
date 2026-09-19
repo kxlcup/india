@@ -37,10 +37,18 @@ const state = {
     revealPublic: false,
     revealPlaying: false,
     revealIdx: 0,
+    vsPosterPublic: false,
+    vsTeamA: "",
+    vsTeamB: "",
   },
   ready: false,
   error: null,
   route: "/",
+  // vs poster
+  vsPickA: null,
+  vsPickB: null,
+  vsPoster: {},
+  vsPosterBusy: {},
   // reveal
   revealIdx: 0,
   revealPlaying: false,
@@ -129,6 +137,9 @@ function subscribeSettings() {
           revealPublic: !!data.revealPublic,
           revealPlaying: !!data.revealPlaying,
           revealIdx: typeof data.revealIdx === "number" ? data.revealIdx : 0,
+          vsPosterPublic: !!data.vsPosterPublic,
+          vsTeamA: data.vsTeamA || "",
+          vsTeamB: data.vsTeamB || "",
         };
         state.settings = nextSettings;
         state.adminRooms = JSON.parse(JSON.stringify(nextSettings.rooms));
@@ -210,6 +221,19 @@ async function saveRoomSettings(mode, id, pass) {
 
 async function updateRevealPublic(val) {
   const payload = { revealPublic: !!val };
+  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set(payload, { merge: true });
+}
+
+async function saveVsPair(aId, bId) {
+  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ vsTeamA: aId, vsTeamB: bId }, { merge: true });
+}
+
+async function updateVsPosterPublic(val, aId, bId) {
+  const payload = { vsPosterPublic: !!val };
+  if (aId && bId) {
+    payload.vsTeamA = aId;
+    payload.vsTeamB = bId;
+  }
   await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set(payload, { merge: true });
 }
 
@@ -927,8 +951,320 @@ function renderAdmin() {
         }
       </section>
 
+      ${renderAdminVs(regs)}
     </div>
   `;
+}
+
+// ── VS poster ──────────────────────────────────────────
+function findTeam(id) {
+  return state.registrations.find((t) => t.id === id) || null;
+}
+
+function vsPairFromSettings() {
+  return { a: findTeam(state.settings.vsTeamA), b: findTeam(state.settings.vsTeamB) };
+}
+
+// Admin draft (selects) falls back to what is saved in Firebase
+function vsPairDraft() {
+  const aId = state.vsPickA != null ? state.vsPickA : state.settings.vsTeamA;
+  const bId = state.vsPickB != null ? state.vsPickB : state.settings.vsTeamB;
+  return { aId, bId, a: findTeam(aId), b: findTeam(bId) };
+}
+
+function vsKey(a, b) {
+  const part = (t) => [t.id, t.teamName, t.tagline || "", (t.logoDataUrl || "").length].join("~");
+  return part(a) + "|" + part(b);
+}
+
+function vsLoadImage(src) {
+  return new Promise((resolve) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => resolve(null);
+    i.src = src;
+  });
+}
+
+function vsRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function vsFitFont(ctx, text, maxW, start, min, weight, family) {
+  let s = start;
+  while (s > min) {
+    ctx.font = `${weight} ${s}px ${family}`;
+    if (ctx.measureText(text).width <= maxW) break;
+    s -= 2;
+  }
+  ctx.font = `${weight} ${s}px ${family}`;
+}
+
+async function vsDrawTeam(ctx, team, cx, top, size, colors) {
+  const x = cx - size / 2;
+  ctx.save();
+  vsRoundRect(ctx, x, top, size, size, 36);
+  ctx.clip();
+  const img = team.logoDataUrl ? await vsLoadImage(team.logoDataUrl) : null;
+  if (img) {
+    const scale = Math.max(size / img.width, size / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    ctx.drawImage(img, cx - w / 2, top + size / 2 - h / 2, w, h);
+  } else {
+    const g = ctx.createLinearGradient(x, top, x + size, top + size);
+    g.addColorStop(0, colors.ember);
+    g.addColorStop(1, colors.gold);
+    ctx.fillStyle = g;
+    ctx.fillRect(x, top, size, size);
+    ctx.fillStyle = colors.bg;
+    ctx.textAlign = "center";
+    ctx.font = "700 120px Rajdhani, Inter, sans-serif";
+    ctx.fillText(teamInitials(team.teamName), cx, top + size / 2 + 42);
+  }
+  ctx.restore();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = colors.gold;
+  vsRoundRect(ctx, x, top, size, size, 36);
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = colors.fg;
+  vsFitFont(ctx, String(team.teamName || "").toUpperCase(), 900, 80, 40, 700, "Rajdhani, Inter, sans-serif");
+  ctx.fillText(String(team.teamName || "").toUpperCase(), cx, top + size + 70);
+  if (team.tagline) {
+    let tag = String(team.tagline);
+    ctx.font = "500 30px Inter, sans-serif";
+    while (ctx.measureText(tag).width > 860 && tag.length > 1) tag = tag.slice(0, -2);
+    if (tag !== team.tagline) tag = tag.trimEnd() + "…";
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(tag, cx, top + size + 115);
+  }
+}
+
+async function buildVsPoster(a, b) {
+  const W = 1080;
+  const H = 1350;
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  const col = (n, f) => (css.getPropertyValue(n) || "").trim() || f;
+  const colors = {
+    bg: col("--bg", "#0b0b0f"),
+    ember: col("--ember", "#ff5a1f"),
+    gold: col("--gold", "#f5b942"),
+    fg: col("--fg", "#f4f4f5"),
+    muted: "rgba(255,255,255,0.6)",
+  };
+  try {
+    await Promise.all([document.fonts.load("700 80px Rajdhani"), document.fonts.load("500 30px Inter")]);
+  } catch (e) {
+    /* fonts optional — fallbacks are set */
+  }
+
+  // background
+  ctx.fillStyle = colors.bg;
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, H * 0.7);
+  glow.addColorStop(0, "rgba(255,90,31,0.24)");
+  glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(255,90,31,0.10)";
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.42);
+  ctx.lineTo(W, H * 0.30);
+  ctx.lineTo(W, H * 0.46);
+  ctx.lineTo(0, H * 0.58);
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = colors.gold;
+  ctx.strokeRect(30, 30, W - 60, H - 60);
+
+  // header
+  ctx.textAlign = "center";
+  ctx.fillStyle = colors.gold;
+  ctx.font = "700 64px Rajdhani, Inter, sans-serif";
+  ctx.fillText("KHATRI × ESP7", W / 2, 120);
+  ctx.fillStyle = colors.fg;
+  ctx.font = "600 34px Inter, sans-serif";
+  ctx.fillText("CLASH SQUAD · 4V4 · FREE FIRE", W / 2, 175);
+
+  // teams + VS
+  await vsDrawTeam(ctx, a, W / 2, 225, 260, colors);
+  ctx.fillStyle = colors.ember;
+  ctx.fillRect(90, 700, 290, 4);
+  ctx.fillRect(W - 380, 700, 290, 4);
+  ctx.save();
+  ctx.shadowColor = colors.ember;
+  ctx.shadowBlur = 40;
+  ctx.fillStyle = colors.ember;
+  ctx.textAlign = "center";
+  ctx.font = "700 190px Rajdhani, Inter, sans-serif";
+  ctx.fillText("VS", W / 2, 770);
+  ctx.restore();
+  await vsDrawTeam(ctx, b, W / 2, 820, 260, colors);
+
+  // footer
+  ctx.textAlign = "center";
+  ctx.fillStyle = colors.muted;
+  ctx.font = "600 30px Inter, sans-serif";
+  ctx.fillText("MATCH TIME · ANNOUNCED ON YOUTUBE LIVE", W / 2, 1290);
+
+  return cv.toDataURL("image/jpeg", 0.92);
+}
+
+// Returns cached poster URL, or "" while it is being generated (img is filled in when ready)
+function vsPosterUrl(a, b) {
+  if (!a || !b) return "";
+  const key = vsKey(a, b);
+  if (state.vsPoster[key]) return state.vsPoster[key];
+  if (!state.vsPosterBusy[key]) {
+    state.vsPosterBusy[key] = true;
+    buildVsPoster(a, b)
+      .then((url) => {
+        if (Object.keys(state.vsPoster).length > 6) state.vsPoster = {};
+        state.vsPoster[key] = url;
+        const el = document.getElementById("vsPosterImg");
+        if (el && el.getAttribute("data-key") === key) {
+          el.src = url;
+          const dl = document.getElementById("vsPosterDl");
+          if (dl) dl.href = url;
+        }
+      })
+      .catch((e) => console.error("VS poster failed", e))
+      .finally(() => {
+        delete state.vsPosterBusy[key];
+      });
+  }
+  return "";
+}
+
+function vsPosterBlock(a, b) {
+  const key = vsKey(a, b);
+  const url = vsPosterUrl(a, b);
+  return `
+    <img class="vs-poster-img" id="vsPosterImg" data-key="${escapeHtml(key)}" ${url ? `src="${url}"` : ""} alt="VS poster: ${escapeHtml(a.teamName)} vs ${escapeHtml(b.teamName)}" style="display:block;margin-left:auto;margin-right:auto" />
+    <p style="text-align:center;margin-top:0.75rem">
+      <a class="btn-ghost" id="vsPosterDl" ${url ? `href="${url}"` : ""} download="vs-poster.jpg" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Download poster</a>
+    </p>`;
+}
+
+function vsSide(t) {
+  const inner = t.logoDataUrl
+    ? `<img src="${escapeHtml(t.logoDataUrl)}" alt="" />`
+    : escapeHtml(teamInitials(t.teamName));
+  return `
+    <div style="text-align:center;max-width:9rem">
+      <div class="vs-mono" style="margin:0 auto">${inner}</div>
+      <p style="margin-top:0.5rem;font-weight:600;font-size:0.875rem;word-break:break-word">${escapeHtml(t.teamName)}</p>
+    </div>`;
+}
+
+function renderVs() {
+  const live = !!state.settings.vsPosterPublic;
+  const isAdmin = state.adminAuthed;
+  const { a, b } = vsPairFromSettings();
+  const ready = !!(a && b);
+  let body = "";
+  if (!live && !isAdmin) {
+    body = `<div class="empty-state mt-6">VS poster abhi public nahi hua. Host jab LIVE karega tab yahan dikhega.</div>`;
+  } else if (!ready) {
+    body = isAdmin
+      ? `<div class="empty-state mt-6">Admin panel ke VS Poster section mein dono teams choose karke Save karo. <a href="#/admin" class="text-gold">Admin →</a></div>`
+      : `<div class="empty-state mt-6">Match abhi set nahi hua. Thodi der mein dobara dekho.</div>`;
+  } else {
+    body = `
+      ${
+        !live
+          ? `<p class="text-muted" style="margin-top:1rem;font-size:0.8rem">Sirf aapko (admin) dikh raha hai — public ke liye hidden. Admin panel se LIVE karo. <a href="#/admin" class="text-gold">Admin →</a></p>`
+          : ""
+      }
+      <div class="vs-preview-row">
+        ${vsSide(a)}
+        <span class="vs-text">VS</span>
+        ${vsSide(b)}
+      </div>
+      ${vsPosterBlock(a, b)}`;
+  }
+  return `
+    <div class="page">
+      <main class="vs-page">
+        <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">CLASH SQUAD · 4V4</p>
+        <h1 style="font-size:2.25rem;margin-top:0.5rem">⚔️ VS</h1>
+        ${body}
+      </main>
+    </div>`;
+}
+
+function renderAdminVs(regs) {
+  const d = vsPairDraft();
+  const live = !!state.settings.vsPosterPublic;
+  const selStyle =
+    "width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem";
+  const opts = (sel) =>
+    `<option value="">— select team —</option>` +
+    regs
+      .map(
+        (t) =>
+          `<option value="${escapeHtml(t.id)}" ${t.id === sel ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`
+      )
+      .join("");
+  return `
+      <!-- VS Poster inside Admin -->
+      <section class="admin-section">
+        <h3>VS Poster (admin control)</h3>
+        <p class="text-muted" style="font-size:0.875rem;margin-bottom:1rem">
+          VS section mein poster public ko tabhi dikhega jab tum ise <strong style="color:var(--fg)">LIVE</strong> karoge.
+        </p>
+        ${
+          regs.length < 2
+            ? `<p class="text-muted" style="font-size:0.875rem">VS ke liye kam se kam 2 teams register honi chahiye.</p>`
+            : `
+        <div class="vs-picks" style="margin-top:0">
+          <div class="field"><label for="vsPickA">Team A</label><select id="vsPickA" style="${selStyle}">${opts(d.aId)}</select></div>
+          <div class="field"><label for="vsPickB">Team B</label><select id="vsPickB" style="${selStyle}">${opts(d.bId)}</select></div>
+        </div>
+        <div class="flex flex-wrap gap-2" style="margin:1rem 0">
+          <button class="btn-ghost" id="vsSave" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Save match</button>
+          <button class="btn-primary" id="vsToggle" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">
+            ${live ? "● LIVE — hide from public" : "Make VS Poster LIVE (public)"}
+          </button>
+          <a href="#/vs" class="btn-ghost" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Preview VS page →</a>
+        </div>
+        <p style="font-size:0.8rem;margin-bottom:0.75rem">
+          Status:
+          ${live ? '<span class="text-success">Public can see VS poster</span>' : '<span class="text-muted">Hidden from public</span>'}
+        </p>
+        ${
+          d.a && d.b
+            ? `<div style="max-width:20rem">${vsPosterBlock(d.a, d.b)}</div>`
+            : `<p class="text-muted" style="font-size:0.8rem">Dono teams select karo — poster preview yahan banega.</p>`
+        }`
+        }
+      </section>
+`;
+}
+
+function vsDraftValid(d) {
+  if (!d.a || !d.b) {
+    alert("Pehle dono teams select karo.");
+    return false;
+  }
+  if (d.aId === d.bId) {
+    alert("Team A aur Team B alag hone chahiye.");
+    return false;
+  }
+  return true;
 }
 
 // ── Router & render ────────────────────────────────────
@@ -964,6 +1300,8 @@ function render() {
     html = renderReveal();
   } else if (state.route === "/hall") {
     html = renderHall();
+  } else if (state.route === "/vs") {
+    html = renderVs();
   } else if (state.route === "/reveal") {
     // Direct link when not live → soft message
     html = renderReveal();
@@ -1317,6 +1655,36 @@ function bindEvents() {
   if (trp) {
     trp.addEventListener("click", async () => {
       await updateRevealPublic(!state.settings.revealPublic);
+    });
+  }
+
+  // VS poster (admin)
+  const vsPickA = document.getElementById("vsPickA");
+  const vsPickB = document.getElementById("vsPickB");
+  if (vsPickA) vsPickA.addEventListener("change", (e) => { state.vsPickA = e.target.value; render(); });
+  if (vsPickB) vsPickB.addEventListener("change", (e) => { state.vsPickB = e.target.value; render(); });
+  const vsSave = document.getElementById("vsSave");
+  if (vsSave) {
+    vsSave.addEventListener("click", async () => {
+      const d = vsPairDraft();
+      if (!vsDraftValid(d)) return;
+      await saveVsPair(d.aId, d.bId);
+      state.vsPickA = null;
+      state.vsPickB = null;
+    });
+  }
+  const vsToggle = document.getElementById("vsToggle");
+  if (vsToggle) {
+    vsToggle.addEventListener("click", async () => {
+      if (state.settings.vsPosterPublic) {
+        await updateVsPosterPublic(false);
+        return;
+      }
+      const d = vsPairDraft();
+      if (!vsDraftValid(d)) return;
+      await updateVsPosterPublic(true, d.aId, d.bId);
+      state.vsPickA = null;
+      state.vsPickB = null;
     });
   }
 }
