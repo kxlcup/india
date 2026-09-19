@@ -64,6 +64,8 @@ const state = {
   adminQ: "",
   adminRooms: null,
   adminSaved: "",
+  adminTeamRooms: {},
+  adminTeamRoomSaved: "",
   // register
   logoDataUrl: "",
   regBusy: false,
@@ -223,6 +225,10 @@ async function setManuallyClosed(val) {
 async function saveRoomSettings(mode, id, pass) {
   const next = { ...state.settings.rooms, [mode]: { id, pass } };
   await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ rooms: next }, { merge: true });
+}
+
+async function saveTeamRoom(teamId, roomId, roomPass) {
+  await db.collection(REGISTRATIONS_COL).doc(teamId).update({ roomId, roomPass });
 }
 
 async function updateRevealPublic(val) {
@@ -431,28 +437,13 @@ function teamCardHtml(team, index, featured) {
 // ── Pages ──────────────────────────────────────────────
 function renderHome() {
   const regs = state.registrations;
-  const rooms = state.settings.rooms;
   const left = slotsLeft();
   const full = isClosed();
-  const activeModes = ["SOLO", "DUO", "SQUAD", "CS"].filter((m) => rooms[m] && rooms[m].id);
 
   const roomBlock =
-    activeModes.length > 0
+    regs.length > 0
       ? `<div class="room-panel">
           <h4>Room details</h4>
-          <div class="room-grid">
-            ${activeModes
-              .map(
-                (m) => `
-              <div class="room-item">
-                <div class="lbl">${MODE_LABELS[m]} — Room ID</div>
-                <div class="val">${escapeHtml(rooms[m].id)}</div>
-                <div class="lbl">Password</div>
-                <div class="val">${escapeHtml(rooms[m].pass || "—")}</div>
-              </div>`
-              )
-              .join("")}
-          </div>
           <div class="team-room-select">
             <label>Select your team (with room ID & password)
               <select id="publicTeamSelect">
@@ -465,12 +456,10 @@ function renderHome() {
                 ? (() => {
                     const t = regs.find((r) => r.id === state.selectedTeamId);
                     if (!t) return "";
-                    const modeRoom = rooms[t.mode] || rooms.CS || { id: "", pass: "" };
                     return `<div class="room-item" style="margin-top:0.5rem;padding:0.75rem;border:1px solid var(--line);border-radius:0.5rem;background:var(--bg)">
                       <div class="lbl">Team</div><div class="val">${escapeHtml(t.teamName)}</div>
-                      <div class="lbl">Mode</div><div class="val">${escapeHtml(MODE_LABELS[t.mode] || t.mode)}</div>
-                      <div class="lbl">Room ID</div><div class="val">${escapeHtml(modeRoom.id || "—")}</div>
-                      <div class="lbl">Password</div><div class="val">${escapeHtml(modeRoom.pass || "—")}</div>
+                      <div class="lbl">Room ID</div><div class="val">${escapeHtml(t.roomId || "—")}</div>
+                      <div class="lbl">Password</div><div class="val">${escapeHtml(t.roomPass || "—")}</div>
                     </div>`;
                   })()
                 : ""
@@ -735,19 +724,6 @@ function renderReveal() {
           ${team ? teamCardHtml(team, state.revealIdx, true) : ""}
         </div>
         ${
-          isAdmin && team
-            ? `<div style="max-width:24rem;margin:1.25rem auto 0;border-radius:0.75rem;border:1px solid var(--line);background:rgba(23,18,13,0.8);padding:1rem">
-                <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;margin-bottom:0.75rem">Logo for ${escapeHtml(team.teamName)}</p>
-                <div class="logo-picker" id="revealLogoPicker" data-team-id="${escapeHtml(team.id)}">
-                  ${team.logoDataUrl ? `<img src="${escapeHtml(team.logoDataUrl)}" alt="" />` : ""}
-                  <div>${team.logoDataUrl ? "Replace logo" : "Upload logo"}</div>
-                  <div class="hint">Shows on reveal and gallery</div>
-                  <input type="file" id="revealLogoFile" accept="image/*" class="sr-only" />
-                </div>
-              </div>`
-            : ""
-        }
-        ${
           isAdmin
             ? `<div class="reveal-controls">
           <button class="reveal-btn" id="revealPrev" aria-label="Previous">‹</button>
@@ -841,7 +817,7 @@ function renderAdmin() {
     inn: regs.filter((t) => t.status === "checked-in").length,
   };
 
-  const rooms = state.adminRooms || state.settings.rooms;
+  const rooms = state.adminRooms || state.settings.rooms; // legacy mode-level rooms (kept for saveRoomSettings compat)
 
   return `
     <div class="container-wide" style="padding:2.5rem 1rem">
@@ -942,25 +918,33 @@ function renderAdmin() {
 
       <section class="admin-section">
         <h3>Room ID & password</h3>
+        <p class="text-muted" style="font-size:0.875rem;margin-bottom:1rem">CS Mac 4v4 — set a Room ID & password for each team so it's clear whose room is whose.</p>
         <div class="room-edit-grid">
-          ${["SOLO", "DUO", "SQUAD", "CS"]
-            .map(
-              (mode) => `
+          ${
+            regs.length === 0
+              ? `<p class="text-muted" style="font-size:0.875rem">No teams registered yet.</p>`
+              : regs
+                  .map((t) => {
+                    const draft = state.adminTeamRooms[t.id] || {};
+                    const idVal = draft.id != null ? draft.id : t.roomId || "";
+                    const passVal = draft.pass != null ? draft.pass : t.roomPass || "";
+                    return `
             <div class="room-edit-card">
-              <h4>${MODE_LABELS[mode]}</h4>
+              <h4>${escapeHtml(t.teamName)}</h4>
               <label>Room ID
-                <input class="room-id" data-mode="${mode}" value="${escapeHtml((rooms[mode] && rooms[mode].id) || "")}" />
+                <input class="team-room-id" data-team-id="${escapeHtml(t.id)}" value="${escapeHtml(idVal)}" />
               </label>
               <label>Password
-                <input class="room-pass" data-mode="${mode}" value="${escapeHtml((rooms[mode] && rooms[mode].pass) || "")}" />
+                <input class="team-room-pass" data-team-id="${escapeHtml(t.id)}" value="${escapeHtml(passVal)}" />
               </label>
-              <button class="btn-ghost save-room" data-mode="${mode}" style="margin-top:0.75rem;min-height:auto;padding:0.375rem 0.75rem;font-size:0.75rem">
-                Save ${MODE_LABELS[mode]}
+              <button class="btn-ghost save-team-room" data-team-id="${escapeHtml(t.id)}" style="margin-top:0.75rem;min-height:auto;padding:0.375rem 0.75rem;font-size:0.75rem">
+                Save for ${escapeHtml(t.teamName)}
               </button>
-              ${state.adminSaved === mode ? '<span class="text-success" style="margin-left:0.5rem;font-size:0.75rem">Saved</span>' : ""}
-            </div>`
-            )
-            .join("")}
+              ${state.adminTeamRoomSaved === t.id ? '<span class="text-success" style="margin-left:0.5rem;font-size:0.75rem">Saved</span>' : ""}
+            </div>`;
+                  })
+                  .join("")
+          }
         </div>
       </section>
 
@@ -1624,23 +1608,7 @@ function bindEvents() {
     await updateRevealLive(going, state.revealIdx);
   });
 
-  // Reveal logo
-  const rlp = document.getElementById("revealLogoPicker");
-  const rlf = document.getElementById("revealLogoFile");
-  if (rlp && rlf) {
-    rlp.addEventListener("click", () => rlf.click());
-    rlf.addEventListener("change", async () => {
-      const file = rlf.files && rlf.files[0];
-      const teamId = rlp.getAttribute("data-team-id");
-      if (!file || !teamId) return;
-      try {
-        const data = await compressLogo(file);
-        await updateRegistrationLogo(teamId, data);
-      } catch (err) {
-        alert(err.message || "Could not save logo");
-      }
-    });
-  }
+
 
   // Admin login
   const adminForm = document.getElementById("adminLoginForm");
@@ -1732,30 +1700,32 @@ function bindEvents() {
     });
   }
 
-  // Room saves
-  if (!state.adminRooms) state.adminRooms = JSON.parse(JSON.stringify(state.settings.rooms));
-  document.querySelectorAll(".room-id").forEach((inp) => {
+  // Room saves (per team)
+  document.querySelectorAll(".team-room-id").forEach((inp) => {
     inp.addEventListener("input", (e) => {
-      const mode = e.target.getAttribute("data-mode");
-      if (!state.adminRooms[mode]) state.adminRooms[mode] = { id: "", pass: "" };
-      state.adminRooms[mode].id = e.target.value;
+      const teamId = e.target.getAttribute("data-team-id");
+      if (!state.adminTeamRooms[teamId]) state.adminTeamRooms[teamId] = {};
+      state.adminTeamRooms[teamId].id = e.target.value;
     });
   });
-  document.querySelectorAll(".room-pass").forEach((inp) => {
+  document.querySelectorAll(".team-room-pass").forEach((inp) => {
     inp.addEventListener("input", (e) => {
-      const mode = e.target.getAttribute("data-mode");
-      if (!state.adminRooms[mode]) state.adminRooms[mode] = { id: "", pass: "" };
-      state.adminRooms[mode].pass = e.target.value;
+      const teamId = e.target.getAttribute("data-team-id");
+      if (!state.adminTeamRooms[teamId]) state.adminTeamRooms[teamId] = {};
+      state.adminTeamRooms[teamId].pass = e.target.value;
     });
   });
-  document.querySelectorAll(".save-room").forEach((btn) => {
+  document.querySelectorAll(".save-team-room").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const mode = btn.getAttribute("data-mode");
-      const r = state.adminRooms[mode] || { id: "", pass: "" };
-      await saveRoomSettings(mode, (r.id || "").trim(), (r.pass || "").trim());
-      state.adminSaved = mode;
+      const teamId = btn.getAttribute("data-team-id");
+      const team = state.registrations.find((t) => t.id === teamId);
+      const draft = state.adminTeamRooms[teamId] || {};
+      const roomId = (draft.id != null ? draft.id : (team && team.roomId) || "").trim();
+      const roomPass = (draft.pass != null ? draft.pass : (team && team.roomPass) || "").trim();
+      await saveTeamRoom(teamId, roomId, roomPass);
+      state.adminTeamRoomSaved = teamId;
       render();
-      setTimeout(() => { state.adminSaved = ""; render(); }, 1600);
+      setTimeout(() => { state.adminTeamRoomSaved = ""; render(); }, 1600);
     });
   });
 
