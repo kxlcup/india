@@ -20,7 +20,7 @@ const ADMIN_ID = "espx_admin";
 const ADMIN_PASSWORD = "khatri1k";
 const ADMIN_SESSION_KEY = "ff_tournament_admin_session_vihaan_espx";
 
-const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "CS Match 4v4" };
+const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "CS Mac 4v4" };
 const EMPTY_ROOMS = {
   SOLO: { id: "", pass: "" },
   DUO: { id: "", pass: "" },
@@ -498,7 +498,7 @@ function renderHome() {
           <div class="details-grid">
             ${[
               ["Game", "Free Fire"],
-              ["Format", "CS Match 4v4"],
+              ["Format", "CS Mac 4v4"],
               ["Prize pool", "₹1,000"],
               ["Entry fee", "Free"],
               ["Total slots", TOTAL_SLOTS + " teams"],
@@ -598,7 +598,7 @@ function renderRegisterForm() {
           </div>
           <div class="field">
             <label>Mode</label>
-            <div class="mode-locked">⚔ CS Match 4v4</div>
+            <div class="mode-locked">⚔ CS Mac 4v4</div>
             <input type="hidden" id="modeSelect" value="CS" />
           </div>
         </div>
@@ -626,7 +626,7 @@ function renderRegisterForm() {
         </div>
       </fieldset>
       <fieldset>
-        <legend>Teammates (CS Match 4v4 — up to 3 more)</legend>
+        <legend>Teammates (CS Mac 4v4 — up to 3 more)</legend>
         <div class="field-grid cols-2">
           <div class="field"><label for="p2Name">Player 2 IGN</label><input id="p2Name" required /><div class="err-msg" id="err-p2Name"></div></div>
           <div class="field"><label for="p2Uid">Player 2 UID</label><input id="p2Uid" required /><div class="err-msg" id="err-p2Uid"></div></div>
@@ -847,7 +847,7 @@ function renderAdmin() {
           [counts.solo, "Solo"],
           [counts.duo, "Duo"],
           [counts.squad, "Squad"],
-          [counts.cs, "CS Match 4v4"],
+          [counts.cs, "CS Mac 4v4"],
           [counts.conf, "Confirmed"],
           [counts.inn, "Checked in"],
         ]
@@ -1164,7 +1164,7 @@ async function buildVsPoster(a, b, when) {
   ctx.fillText("KHATRI × ESP7", W / 2, 120);
   ctx.fillStyle = colors.fg;
   ctx.font = "600 34px Inter, sans-serif";
-  ctx.fillText("CS MATCH 4V4 · FREE FIRE", W / 2, 175);
+  ctx.fillText("CS MAC 4V4 · FREE FIRE", W / 2, 175);
 
   // teams + VS
   await vsDrawTeam(ctx, a, W / 2, 225, 260, colors);
@@ -1296,7 +1296,7 @@ function renderVs() {
   return `
     <div class="page">
       <main class="vs-page">
-        <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">CS MATCH 4V4</p>
+        <p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">CS MAC 4V4</p>
         <h1 style="font-size:2.25rem;margin-top:0.5rem">⚔️ VS</h1>
         ${body}
       </main>
