@@ -20,7 +20,7 @@ const ADMIN_ID = "espx_admin";
 const ADMIN_PASSWORD = "khatri1k";
 const ADMIN_SESSION_KEY = "ff_tournament_admin_session_vihaan_espx";
 
-const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "CS Mac 4v4" };
+const MODE_LABELS = { SOLO: "Solo", DUO: "Duo", SQUAD: "Squad", CS: "Clash Squad" };
 const EMPTY_ROOMS = {
   SOLO: { id: "", pass: "" },
   DUO: { id: "", pass: "" },
@@ -438,7 +438,7 @@ function renderHome() {
             <small style="font-weight:400;color:var(--muted)">@VIHAAN_ESPx</small>
           </a>
           <div class="badge-gold">1K SPECIAL TOURNAMENT</div>
-          <p style="font-size:0.875rem;font-weight:600;letter-spacing:0.04em;color:var(--gold)">CS MAC 4V4 REGISTRATION · FREE FIRE</p>
+          <p style="font-size:0.875rem;font-weight:600;letter-spacing:0.04em;color:var(--gold)">CLASH SQUAD REGISTRATION · FREE FIRE</p>
           <h1>Khatri x ESP7<br /><em>Free Fire</em> Tournament</h1>
           <p class="hero-sub">Upload your squad logo, lock your IGNs, and get a professional reveal card. Room ID & password drop here and on the live stream.</p>
           <div class="stats-row">
@@ -460,7 +460,7 @@ function renderHome() {
           <div class="details-grid">
             ${[
               ["Game", "Free Fire"],
-              ["Format", "CS Mac 4v4"],
+              ["Format", "Clash Squad (CS)"],
               ["Prize pool", "₹1,000"],
               ["Entry fee", "Free"],
               ["Total slots", TOTAL_SLOTS + " teams"],
@@ -489,7 +489,7 @@ function renderHome() {
       <section class="section" id="register">
         <div class="container">
           <h2 style="font-size:1.625rem">Register your squad</h2>
-          <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">CS Mac 4v4 only · Add a logo and motto — they power your reveal card.</p>
+          <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">Clash Squad only · Add a logo and motto — they power your reveal card.</p>
           <div class="mt-6">${renderRegisterForm()}</div>
           <p class="mt-4 text-muted" style="font-size:0.875rem">Need help? Customer support: <a href="tel:${SUPPORT_TEL}" class="text-gold" style="font-weight:600">${SUPPORT_TEL}</a></p>
         </div>
@@ -540,7 +540,7 @@ function renderRegisterForm() {
           </div>
           <div class="field">
             <label>Mode</label>
-            <div class="mode-locked">⚔ CS Mac 4v4 — only mode open</div>
+            <div class="mode-locked">⚔ Clash Squad (CS) — only mode open</div>
             <input type="hidden" id="modeSelect" value="CS" />
           </div>
         </div>
@@ -568,7 +568,7 @@ function renderRegisterForm() {
         </div>
       </fieldset>
       <fieldset>
-        <legend>Teammates (CS Mac 4v4 — up to 3 more)</legend>
+        <legend>Teammates (CS — up to 3 more)</legend>
         <div class="field-grid cols-2">
           <div class="field"><label for="p2Name">Player 2 IGN</label><input id="p2Name" required /><div class="err-msg" id="err-p2Name"></div></div>
           <div class="field"><label for="p2Uid">Player 2 UID</label><input id="p2Uid" required /><div class="err-msg" id="err-p2Uid"></div></div>
@@ -694,42 +694,6 @@ function renderReveal() {
       }
     </div>
   `;
-}
-
-function renderVs() {
-  const regs = state.registrations;
-  let listHtml = "";
-  if (regs.length === 0) {
-    listHtml = '<div class="empty-state mt-6">No teams yet. Register first to appear here.</div>';
-  } else {
-    listHtml = '<div class="team-grid mt-6" style="grid-template-columns:1fr">';
-    regs.forEach(function (t, i) {
-      var name = escapeHtml(t.teamName);
-      var mode = escapeHtml(MODE_LABELS[t.mode] || t.mode);
-      var cap = t.captain && t.captain.name ? escapeHtml(t.captain.name) : "—";
-      var num = String(i + 1).padStart(2, "0");
-      listHtml +=
-        '<div style="display:flex;align-items:center;gap:1rem;padding:1rem;border:1px solid var(--line);border-radius:0.75rem;background:var(--raised)">' +
-        '<span class="text-gold" style="font-family:var(--font-display);font-weight:700;min-width:2.5rem">#' +
-        num +
-        "</span><div><div style=\"font-weight:700\">" +
-        name +
-        '</div><div class="text-muted" style="font-size:0.8rem">' +
-        mode +
-        " · " +
-        cap +
-        "</div></div></div>";
-    });
-    listHtml += "</div>";
-  }
-  return (
-    '<div class="page"><main class="container" style="padding-top:3rem;padding-bottom:3rem">' +
-    '<p class="text-gold" style="font-family:var(--font-display);font-size:0.875rem;letter-spacing:0.18em">⚔️ VS · CS MAC 4V4</p>' +
-    '<h1 style="font-size:2.25rem;margin-top:0.5rem">Matchups</h1>' +
-    '<p class="text-muted" style="margin-top:0.5rem;max-width:28rem;font-size:0.875rem">Team list only — no poster / logo creation on this page.</p>' +
-    listHtml +
-    "</main></div>"
-  );
 }
 
 function renderHall() {
@@ -1000,8 +964,6 @@ function render() {
     html = renderReveal();
   } else if (state.route === "/hall") {
     html = renderHall();
-  } else if (state.route === "/vs") {
-    html = renderVs();
   } else if (state.route === "/reveal") {
     // Direct link when not live → soft message
     html = renderReveal();
