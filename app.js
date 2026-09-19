@@ -1517,7 +1517,7 @@ function render() {
 
   // Reveal button in public nav — visible only while Reveal is LIVE
   const navReveal = document.getElementById("navReveal");
-  if (navReveal) navReveal.style.display = "";
+  if (navReveal) navReveal.style.display = state.settings.revealPublic ? "" : "none";
 
   let html = "";
   if (state.route === "/admin") {
