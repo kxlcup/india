@@ -524,6 +524,19 @@ function renderHome() {
         </div>
       </section>
 
+      <section class="section" id="wildcard">
+        <div class="container">
+          <div style="border:1px solid var(--gold, #c9a227);border-radius:0.75rem;padding:1.5rem">
+            <h2 style="font-size:1.625rem">🃏 Wild Card Entry</h2>
+            <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">Slots full ho gaye ya normal registration miss ho gayi? Wild Card se seedha entry lo.</p>
+            <div class="stats-row" style="margin-top:1rem">
+              <div class="stat-box"><div class="num">₹150</div><div class="lbl">Wild Card fee</div></div>
+            </div>
+            <p class="mt-4" style="font-size:0.9375rem">Entry ke liye message karo: <a href="sms:${SUPPORT_TEL}" class="text-gold" style="font-weight:700">${SUPPORT_TEL}</a></p>
+          </div>
+        </div>
+      </section>
+
       <section class="section" id="register">
         <div class="container">
           <h2 style="font-size:1.625rem">Register your squad</h2>
