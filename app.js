@@ -528,11 +528,19 @@ function renderHome() {
         <div class="container">
           <div style="border:1px solid var(--gold, #c9a227);border-radius:0.75rem;padding:1.5rem">
             <h2 style="font-size:1.625rem">🃏 Wild Card Entry</h2>
-            <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">Slots full ho gaye ya normal registration miss ho gayi? Wild Card se seedha entry lo.</p>
+            <p class="text-muted" style="margin-top:0.25rem;font-size:0.875rem">Missed the slots or regular registration? Grab a direct entry with a Wild Card.</p>
             <div class="stats-row" style="margin-top:1rem">
               <div class="stat-box"><div class="num">₹150</div><div class="lbl">Wild Card fee</div></div>
             </div>
-            <p class="mt-4" style="font-size:0.9375rem">Entry ke liye message karo: <a href="sms:${SUPPORT_TEL}" class="text-gold" style="font-weight:700">${SUPPORT_TEL}</a></p>
+            <a
+              href="https://wa.me/91${SUPPORT_TEL}?text=${encodeURIComponent("Hi, I want a Wild Card entry for Khatri x ESP7 Free Fire Tournament.")}"
+              target="_blank"
+              rel="noopener"
+              class="btn-primary"
+              style="display:block;width:100%;text-align:center;margin-top:1rem;box-sizing:border-box"
+            >
+              💬 Message on WhatsApp for entry
+            </a>
           </div>
         </div>
       </section>
@@ -839,7 +847,7 @@ function renderAdmin() {
           [counts.solo, "Solo"],
           [counts.duo, "Duo"],
           [counts.squad, "Squad"],
-          [counts.cs, "CS"],
+          [counts.cs, "CS Match 4v4"],
           [counts.conf, "Confirmed"],
           [counts.inn, "Checked in"],
         ]
