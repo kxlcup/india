@@ -27,6 +27,8 @@ const EMPTY_ROOMS = {
   SQUAD: { id: "", pass: "" },
   CS: { id: "", pass: "" },
 };
+const SEL_STYLE =
+  "width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem";
 
 // ── State ──────────────────────────────────────────────
 const state = {
@@ -43,6 +45,7 @@ const state = {
     vsMatchDate: "",
     vsMatchTime: "",
     matches: [],
+    roomsPublic: false,
   },
   ready: false,
   error: null,
@@ -65,8 +68,9 @@ const state = {
   adminQ: "",
   adminRooms: null,
   adminSaved: "",
-  adminTeamRooms: {},
-  adminTeamRoomSaved: "",
+  roomTeamPick: null,
+  roomIdDraft: null,
+  roomPassDraft: null,
   adminMatchDraft: { aId: "", bId: "", roomId: "", roomPass: "" },
   // register
   logoDataUrl: "",
@@ -151,6 +155,7 @@ function subscribeSettings() {
           vsMatchDate: data.vsMatchDate || "",
           vsMatchTime: data.vsMatchTime || "",
           matches: Array.isArray(data.matches) ? data.matches : [],
+          roomsPublic: !!data.roomsPublic,
         };
         state.settings = nextSettings;
         state.adminRooms = JSON.parse(JSON.stringify(nextSettings.rooms));
@@ -232,6 +237,10 @@ async function saveRoomSettings(mode, id, pass) {
 
 async function saveTeamRoom(teamId, roomId, roomPass) {
   await db.collection(REGISTRATIONS_COL).doc(teamId).update({ roomId, roomPass });
+}
+
+async function updateRoomsPublic(val) {
+  await db.collection(SETTINGS_COL).doc(SETTINGS_ID).set({ roomsPublic: !!val }, { merge: true });
 }
 
 async function addMatch(aId, bId, roomId, roomPass) {
@@ -455,8 +464,14 @@ function renderHome() {
   const full = isClosed();
 
   const roomBlock =
-    regs.length > 0
+    regs.length === 0
+      ? ""
+      : !state.settings.roomsPublic
       ? `<div class="room-panel">
+          <h4>Room details</h4>
+          <div class="empty-state">Room ID & password will appear here once the host makes it live.</div>
+        </div>`
+      : `<div class="room-panel">
           <h4>Room details</h4>
           <div class="team-room-select">
             <label>Select your team (with room ID & password)
@@ -499,8 +514,7 @@ function renderHome() {
                 </div>`
               : ""
           }
-        </div>`
-      : "";
+        </div>`;
 
   return `
     <div class="page">
@@ -951,35 +965,54 @@ function renderAdmin() {
       </section>
 
       <section class="admin-section">
-        <h3>Room ID & password</h3>
-        <p class="text-muted" style="font-size:0.875rem;margin-bottom:1rem">CS Mac 4v4 — set a Room ID & password for each team so it's clear whose room is whose.</p>
-        <div class="room-edit-grid">
-          ${
-            regs.length === 0
-              ? `<p class="text-muted" style="font-size:0.875rem">No teams registered yet.</p>`
-              : regs
-                  .map((t) => {
-                    const draft = state.adminTeamRooms[t.id] || {};
-                    const idVal = draft.id != null ? draft.id : t.roomId || "";
-                    const passVal = draft.pass != null ? draft.pass : t.roomPass || "";
-                    return `
-            <div class="room-edit-card">
-              <h4>${escapeHtml(t.teamName)}</h4>
-              <label>Room ID
-                <input class="team-room-id" data-team-id="${escapeHtml(t.id)}" value="${escapeHtml(idVal)}" />
-              </label>
-              <label>Password
-                <input class="team-room-pass" data-team-id="${escapeHtml(t.id)}" value="${escapeHtml(passVal)}" />
-              </label>
-              <button class="btn-ghost save-team-room" data-team-id="${escapeHtml(t.id)}" style="margin-top:0.75rem;min-height:auto;padding:0.375rem 0.75rem;font-size:0.75rem">
-                Save for ${escapeHtml(t.teamName)}
-              </button>
-              ${state.adminTeamRoomSaved === t.id ? '<span class="text-success" style="margin-left:0.5rem;font-size:0.75rem">Saved</span>' : ""}
-            </div>`;
-                  })
-                  .join("")
-          }
+        <h3>Room ID & password (admin control)</h3>
+        <p class="text-muted" style="font-size:0.875rem;margin-bottom:1rem">
+          Room ID & password is only visible to the public once you make it <strong style="color:var(--fg)">LIVE</strong>.
+        </p>
+        ${
+          regs.length === 0
+            ? `<p class="text-muted" style="font-size:0.875rem">No teams registered yet.</p>`
+            : (() => {
+                const rd = roomTeamDraft();
+                const roomsLive = !!state.settings.roomsPublic;
+                const teamOpts =
+                  `<option value="">— select team —</option>` +
+                  regs
+                    .map(
+                      (t) =>
+                        `<option value="${escapeHtml(t.id)}" ${t.id === rd.teamId ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`
+                    )
+                    .join("");
+                return `
+        <div class="vs-picks" style="margin-top:0">
+          <div class="field"><label for="roomTeamPick">Team</label><select id="roomTeamPick" style="${SEL_STYLE}">${teamOpts}</select></div>
         </div>
+        <div class="vs-picks" style="margin-top:0">
+          <div class="field"><label for="roomIdInput">Room ID</label><input id="roomIdInput" value="${escapeHtml(rd.id)}" style="${SEL_STYLE}" /></div>
+          <div class="field"><label for="roomPassInput">Password</label><input id="roomPassInput" value="${escapeHtml(rd.pass)}" style="${SEL_STYLE}" /></div>
+        </div>
+        <div class="flex flex-wrap gap-2" style="margin:1rem 0">
+          <button class="btn-ghost" id="roomSave" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Save room</button>
+          <button class="btn-primary" id="roomsToggle" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">
+            ${roomsLive ? "● LIVE — hide from public" : "Make Room IDs LIVE (public)"}
+          </button>
+          <a href="#/" class="btn-ghost" style="min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Preview home page →</a>
+        </div>
+        <p style="font-size:0.8rem;margin-bottom:0.75rem">
+          Status:
+          ${roomsLive ? '<span class="text-success">Public can see Room IDs</span>' : '<span class="text-muted">Hidden from public</span>'}
+        </p>
+        ${
+          rd.team
+            ? `<div style="max-width:20rem"><div class="room-item" style="border:1px solid var(--line);border-radius:0.5rem;padding:0.75rem;background:var(--bg)">
+                <div class="lbl">Team</div><div class="val">${escapeHtml(rd.team.teamName)}</div>
+                <div class="lbl">Room ID</div><div class="val">${escapeHtml(rd.id || "—")}</div>
+                <div class="lbl">Password</div><div class="val">${escapeHtml(rd.pass || "—")}</div>
+              </div></div>`
+            : `<p class="text-muted" style="font-size:0.8rem">Select a team — the room preview will appear here.</p>`
+        }`;
+              })()
+        }
 
         <h4 style="margin-top:1.5rem;font-size:1rem">Match pairings (Team vs Team)</h4>
         <p class="text-muted" style="font-size:0.875rem;margin-bottom:0.75rem">Pick two teams and set their shared Room ID & password — same idea as the VS poster, but here it's tied to the room.</p>
@@ -989,21 +1022,21 @@ function renderAdmin() {
             : `
         <div class="vs-picks" style="margin-top:0">
           <div class="field"><label for="matchPickA">Team A</label>
-            <select id="matchPickA" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem">
+            <select id="matchPickA" style="${SEL_STYLE}">
               <option value="">— select team —</option>
               ${regs.map((t) => `<option value="${escapeHtml(t.id)}" ${state.adminMatchDraft.aId === t.id ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`).join("")}
             </select>
           </div>
           <div class="field"><label for="matchPickB">Team B</label>
-            <select id="matchPickB" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem">
+            <select id="matchPickB" style="${SEL_STYLE}">
               <option value="">— select team —</option>
               ${regs.map((t) => `<option value="${escapeHtml(t.id)}" ${state.adminMatchDraft.bId === t.id ? "selected" : ""}>${escapeHtml(t.teamName)}</option>`).join("")}
             </select>
           </div>
         </div>
         <div class="vs-picks" style="margin-top:0.75rem">
-          <div class="field"><label for="matchRoomId">Room ID</label><input id="matchRoomId" value="${escapeHtml(state.adminMatchDraft.roomId)}" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem" /></div>
-          <div class="field"><label for="matchRoomPass">Password</label><input id="matchRoomPass" value="${escapeHtml(state.adminMatchDraft.roomPass)}" style="width:100%;border-radius:0.375rem;border:1px solid var(--line);background:var(--raised);color:inherit;padding:0.5rem" /></div>
+          <div class="field"><label for="matchRoomId">Room ID</label><input id="matchRoomId" value="${escapeHtml(state.adminMatchDraft.roomId)}" style="${SEL_STYLE}" /></div>
+          <div class="field"><label for="matchRoomPass">Password</label><input id="matchRoomPass" value="${escapeHtml(state.adminMatchDraft.roomPass)}" style="${SEL_STYLE}" /></div>
         </div>
         <button class="btn-primary" id="addMatch" style="margin-top:0.75rem;min-height:auto;padding:0.5rem 1rem;font-size:0.875rem">Add match pairing</button>
         `
@@ -1116,6 +1149,14 @@ function vsPairDraft() {
     time: state.vsPickTime != null ? state.vsPickTime : state.settings.vsMatchTime || "",
   };
   return { aId, bId, a: findTeam(aId), b: findTeam(bId), when };
+}
+
+function roomTeamDraft() {
+  const teamId = state.roomTeamPick != null ? state.roomTeamPick : "";
+  const team = findTeam(teamId);
+  const id = state.roomIdDraft != null ? state.roomIdDraft : (team ? team.roomId || "" : "");
+  const pass = state.roomPassDraft != null ? state.roomPassDraft : (team ? team.roomPass || "" : "");
+  return { teamId, team, id, pass };
 }
 
 function vsKey(a, b, when) {
@@ -1781,34 +1822,30 @@ function bindEvents() {
     });
   }
 
-  // Room saves (per team)
-  document.querySelectorAll(".team-room-id").forEach((inp) => {
-    inp.addEventListener("input", (e) => {
-      const teamId = e.target.getAttribute("data-team-id");
-      if (!state.adminTeamRooms[teamId]) state.adminTeamRooms[teamId] = {};
-      state.adminTeamRooms[teamId].id = e.target.value;
-    });
-  });
-  document.querySelectorAll(".team-room-pass").forEach((inp) => {
-    inp.addEventListener("input", (e) => {
-      const teamId = e.target.getAttribute("data-team-id");
-      if (!state.adminTeamRooms[teamId]) state.adminTeamRooms[teamId] = {};
-      state.adminTeamRooms[teamId].pass = e.target.value;
-    });
-  });
-  document.querySelectorAll(".save-team-room").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const teamId = btn.getAttribute("data-team-id");
-      const team = state.registrations.find((t) => t.id === teamId);
-      const draft = state.adminTeamRooms[teamId] || {};
-      const roomId = (draft.id != null ? draft.id : (team && team.roomId) || "").trim();
-      const roomPass = (draft.pass != null ? draft.pass : (team && team.roomPass) || "").trim();
-      await saveTeamRoom(teamId, roomId, roomPass);
-      state.adminTeamRoomSaved = teamId;
+  // Room ID & password (single team pick, VS-style)
+  const roomTeamPick = document.getElementById("roomTeamPick");
+  const roomIdInput = document.getElementById("roomIdInput");
+  const roomPassInput = document.getElementById("roomPassInput");
+  if (roomTeamPick) roomTeamPick.addEventListener("change", (e) => { state.roomTeamPick = e.target.value; state.roomIdDraft = null; state.roomPassDraft = null; render(); });
+  if (roomIdInput) roomIdInput.addEventListener("input", (e) => { state.roomIdDraft = e.target.value; });
+  if (roomPassInput) roomPassInput.addEventListener("input", (e) => { state.roomPassDraft = e.target.value; });
+  const roomSave = document.getElementById("roomSave");
+  if (roomSave) {
+    roomSave.addEventListener("click", async () => {
+      const rd = roomTeamDraft();
+      if (!rd.teamId) return;
+      await saveTeamRoom(rd.teamId, (rd.id || "").trim(), (rd.pass || "").trim());
+      state.roomIdDraft = null;
+      state.roomPassDraft = null;
       render();
-      setTimeout(() => { state.adminTeamRoomSaved = ""; render(); }, 1600);
     });
-  });
+  }
+  const roomsToggle = document.getElementById("roomsToggle");
+  if (roomsToggle) {
+    roomsToggle.addEventListener("click", async () => {
+      await updateRoomsPublic(!state.settings.roomsPublic);
+    });
+  }
 
   // Match pairings (team vs team, with room id/password)
   const mpA = document.getElementById("matchPickA");
